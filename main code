@@ -1,0 +1,329 @@
+import pygame
+import math
+
+# --- NEON CONFIGURATION ---
+WIDTH, HEIGHT = 1300, 800
+FPS = 60
+BG_COLOR = (5, 5, 10)
+NEON_BLUE = (0, 255, 255)
+NEON_GREEN = (50, 255, 50)
+NEON_ORANGE = (255, 100, 0)
+NEON_PINK = (255, 20, 147)
+NEON_YELLOW = (255, 255, 0)
+NEON_RED = (255, 50, 50)
+GREY_TEXT = (150, 150, 160)
+NEON_WHITE = (255, 255, 255)
+
+class CyberPhysicsVisualizer:
+    def __init__(self):
+        pygame.init()
+        self.screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
+        pygame.display.set_caption("KineCalc | CALCULUS VISUALISER v2.4")
+        self.clock = pygame.time.Clock()
+        
+        self.zoom_level = 1.0  
+        self.ui_font_fixed = pygame.font.SysFont("Agency FB", 20)
+        self.ui_sub_fixed = pygame.font.SysFont("Agency FB", 14)
+        self.ui_title_fixed = pygame.font.SysFont("Agency FB", 28, bold=True)
+        self.ui_header_fixed = pygame.font.SysFont("Agency FB", 34, bold=True)
+        
+        self.title_main_font = pygame.font.SysFont("Agency FB", 32, bold=True)
+        self.title_formula_font = pygame.font.SysFont("Agency FB", 42, bold=True)
+        
+        self.user_text = "t**2"
+        self.active = False
+        self.input_rect = pygame.Rect(WIDTH - 300, 20, 280, 40)
+        
+        # --- CREDITS STATE ---
+        self.show_credits = False
+        
+        self.update_fonts()
+        self.ox, self.oy = 400, 400 
+        self.scale = 75
+        self.t0 = 2.0
+        self.delta_t = 1.0
+
+    def update_fonts(self):
+        f_scale = min(1.5, max(0.8, (HEIGHT / 800))) 
+        font_name = "Agency FB, Bahnschrift, Segoe UI Semibold, Arial"
+        self.main_font = pygame.font.SysFont(font_name, int(20 * f_scale))
+        self.small_font = pygame.font.SysFont(font_name, int(17 * f_scale))
+        self.micro_font = pygame.font.SysFont(font_name, int(14 * f_scale))
+        self.sub_font = pygame.font.SysFont(font_name, int(12 * f_scale))
+        self.title_font = pygame.font.SysFont(font_name, int(28 * f_scale), bold=True)
+
+    def f(self, t): 
+        try:
+            safe_dict = {
+                "t": t, "sin": math.sin, "cos": math.cos, "tan": math.tan,
+                "sqrt": math.sqrt, "pi": math.pi, "e": math.e,
+                "log": math.log, "exp": math.exp
+            }
+            return float(eval(self.user_text, {"__builtins__": None}, safe_dict))
+        except: return 0
+
+    def df(self, t): 
+        h = 0.0001 
+        return (self.f(t + h) - self.f(t)) / h
+
+    def to_screen(self, t, x):
+        sx = self.ox + int(t * self.scale * self.zoom_level)
+        sy = self.oy - int(x * self.scale * self.zoom_level)
+        return (sx, sy)
+
+    def draw_subscript_text(self, text, sub, x, y, color, font, sub_font, fixed=True):
+        base_surf = font.render(text, True, color)
+        self.screen.blit(base_surf, (x, y))
+        sub_offset = 8 
+        sub_surf = sub_font.render(sub, True, color)
+        self.screen.blit(sub_surf, (x + base_surf.get_width(), y + sub_offset))
+        return base_surf.get_width() + sub_surf.get_width()
+
+    def draw_infinite_line(self, t0, dt, color):
+        try:
+            p_scr = self.to_screen(t0, self.f(t0))
+            slope_val = (self.f(t0 + dt) - self.f(t0)) / dt if dt > 0.0001 else self.df(t0)
+            m_pixel = -slope_val
+            x1, y1 = p_scr
+            target_x0 = -10000 
+            target_x1 = 10000
+            y_at_x0 = m_pixel * (target_x0 - x1) + y1
+            y_at_limit = m_pixel * (target_x1 - x1) + y1
+            pygame.draw.line(self.screen, color, (target_x0, y_at_x0), (target_x1, y_at_limit), 1)
+        except: pass
+
+    def draw_data_panel(self):
+        px = 750 
+        t_q = self.t0 + self.delta_t
+        x_p, x_q = self.f(self.t0), self.f(t_q)
+        avg_v = (x_q - x_p) / self.delta_t if self.delta_t != 0 else 0
+        inst_v = self.df(self.t0)
+        err = abs(avg_v - inst_v)
+        pygame.draw.rect(self.screen, (10, 10, 20), (px-20, 50, WIDTH-px+10, HEIGHT-100))
+        pygame.draw.line(self.screen, NEON_BLUE, (px, 100), (px + 250, 100), 2)
+        self.screen.blit(self.ui_font_fixed.render("Point P (Fixed)", True, NEON_BLUE), (px, 75))
+        self.screen.blit(self.ui_title_fixed.render(f"({self.t0:.2f}, {x_p:.2f})", True, NEON_BLUE), (px, 105))
+        self.draw_subscript_text("t", "0", px, 140, GREY_TEXT, self.ui_sub_fixed, self.ui_sub_fixed)
+        self.screen.blit(self.ui_sub_fixed.render(f" , x(t) = {self.user_text}", True, GREY_TEXT), (px + 12, 140))
+        pygame.draw.line(self.screen, NEON_YELLOW, (px + 280, 100), (px + 530, 100), 2)
+        self.screen.blit(self.ui_font_fixed.render("Point Q (Sliding)", True, NEON_YELLOW), (px+280, 75))
+        q_label = f"({t_q:.4f}, {x_q:.4f})" if self.delta_t >= 0.001 else "≈ P (Δt -> 0)"
+        self.screen.blit(self.ui_title_fixed.render(q_label, True, NEON_YELLOW), (px+280, 105))
+        self.draw_subscript_text("t", "0", px+280, 140, GREY_TEXT, self.ui_sub_fixed, self.ui_sub_fixed)
+        self.screen.blit(self.ui_sub_fixed.render("+Δt , x(t+Δt)", True, GREY_TEXT), (px+292, 140))
+        pygame.draw.line(self.screen, NEON_ORANGE, (px, 200), (px + 250, 200), 2)
+        self.screen.blit(self.ui_font_fixed.render("Avg. Velocity (Secant)", True, NEON_ORANGE), (px, 175))
+        self.screen.blit(self.ui_title_fixed.render(f"= {avg_v:.4f}", True, NEON_ORANGE), (px, 205))
+        self.screen.blit(self.ui_sub_fixed.render("Δx / Δt = [x(t+Δt) - x(t)] / Δt", True, GREY_TEXT), (px, 240))
+        pygame.draw.line(self.screen, NEON_GREEN, (px + 280, 200), (px + 530, 200), 2)
+        self.screen.blit(self.ui_font_fixed.render("Inst. Velocity (Tangent)", True, NEON_GREEN), (px+280, 175))
+        self.screen.blit(self.ui_title_fixed.render(f"{inst_v:.4f}", True, NEON_GREEN), (px+280, 205))
+        self.screen.blit(self.ui_sub_fixed.render(f"dx/dt at t={self.t0:.2f}", True, GREY_TEXT), (px+280, 240))
+        pygame.draw.line(self.screen, NEON_PINK, (px, 300), (px + 530, 300), 2)
+        self.screen.blit(self.ui_font_fixed.render("Error |Avg Vel - Inst. Vel|", True, NEON_PINK), (px, 310))
+        self.screen.blit(self.ui_title_fixed.render(f"= {err:.6f}", True, NEON_PINK), (px, 335))
+        self.screen.blit(self.ui_sub_fixed.render("Value of Δt shrinks as P and Q converge", True, GREY_TEXT), (px, 370))
+        
+        self.screen.blit(self.ui_font_fixed.render("• Slope (Velocity) values at different t values", True, NEON_BLUE), (px, 420))
+        headers = ["t", f"x(t) = {self.user_text}", "Avg Δx/Δt", "Inst v"]
+        for i, h in enumerate(headers): self.screen.blit(self.ui_font_fixed.render(h, True, GREY_TEXT), (px + i*135, 450))
+        for idx, t_val in enumerate([0.5, 1.0, 2.0, 3.0, 4.0]):
+            row_y = 485 + idx*32
+            self.screen.blit(self.ui_font_fixed.render(f"{t_val:.1f}", True, NEON_BLUE), (px, row_y))
+            self.screen.blit(self.ui_font_fixed.render(f"{self.f(t_val):.2f}", True, NEON_BLUE), (px+135, row_y))
+            table_avg = (self.f(t_val + self.delta_t) - self.f(t_val)) / self.delta_t
+            self.screen.blit(self.ui_font_fixed.render(f"= {table_avg:.3f}", True, NEON_ORANGE), (px+270, row_y))
+            self.screen.blit(self.ui_font_fixed.render(f"{self.df(t_val):.3f}", True, NEON_GREEN), (px+405, row_y))
+        return avg_v, inst_v, err
+
+    def run(self):
+        global WIDTH, HEIGHT
+        while True:
+            self.screen.fill(BG_COLOR)
+            m_pos = pygame.mouse.get_pos()
+            keys = pygame.key.get_pressed()
+            
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT: pygame.quit(); return
+                if event.type == pygame.VIDEORESIZE:
+                    WIDTH, HEIGHT = event.w, event.h
+                    self.screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.RESIZABLE)
+                    self.input_rect.x = WIDTH - 300 
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    if self.input_rect.collidepoint(event.pos): self.active = True
+                    else: self.active = False
+                    
+                    old_z = self.zoom_level
+                    zoom_speed = 1.2 if event.button == 4 else 0.8
+                    if event.button == 4: self.zoom_level = min(1000.0, self.zoom_level * zoom_speed)
+                    if event.button == 5: self.zoom_level = max(0.01, self.zoom_level * zoom_speed)
+                    
+                    if old_z != self.zoom_level:
+                        ratio = self.zoom_level / old_z
+                        self.ox = m_pos[0] - (m_pos[0] - self.ox) * ratio
+                        self.oy = m_pos[1] - (m_pos[1] - self.oy) * ratio
+                
+                if event.type == pygame.KEYDOWN:
+                    # --- UPDATED: TAB FOR CREDITS ---
+                    if event.key == pygame.K_TAB:
+                        self.show_credits = not self.show_credits
+
+                    if self.active:
+                        if event.key == pygame.K_BACKSPACE: self.user_text = self.user_text[:-1]
+                        else: self.user_text += event.unicode
+
+            if keys[pygame.K_LEFT]: self.ox += 8
+            if keys[pygame.K_RIGHT]: self.ox -= 8
+            if keys[pygame.K_UP]: self.oy += 8
+            if keys[pygame.K_DOWN]: self.oy -= 8
+
+            m_press = pygame.mouse.get_pressed()
+            if m_press[0] and 50 < m_pos[0] < 550:
+                if HEIGHT-150 < m_pos[1] < HEIGHT-130: 
+                    self.t0 = ((m_pos[0]-50)/500 * 20) - 10
+                if HEIGHT-100 < m_pos[1] < HEIGHT-80: 
+                    self.delta_t = max(0.0001, (m_pos[0]-50)/500 * 5)
+
+            # --- AXES & GRID ---
+            pygame.draw.line(self.screen, (60, 60, 80), (0, self.oy), (WIDTH, self.oy), 2) 
+            pygame.draw.line(self.screen, (60, 60, 80), (self.ox, 0), (self.ox, HEIGHT), 2) 
+            
+            x_label_surf = self.ui_font_fixed.render("t (in seconds) ---->", True, GREY_TEXT)
+            self.screen.blit(x_label_surf, (self.ox + 150, self.oy - 25)) 
+            
+            y_label_text = "position x(t) ---->"
+            y_label_surf = self.ui_font_fixed.render(y_label_text, True, GREY_TEXT)
+            y_label_rot = pygame.transform.rotate(y_label_surf, 90)
+            self.screen.blit(y_label_rot, (self.ox - 35, self.oy - 180))
+
+            step = 1
+            if self.zoom_level > 2: step = 0.5
+            if self.zoom_level < 0.5: step = 5
+            
+            for i in range(-50, 50):
+                val = i * step
+                if abs(val) < 2.0 and i != 0: continue
+                
+                nx, ny = self.to_screen(val, 0)
+                if 0 < nx < WIDTH:
+                    pygame.draw.line(self.screen, (100, 100, 120), (nx, self.oy-5), (nx, self.oy+5), 1)
+                    if i != 0: self.screen.blit(self.ui_sub_fixed.render(f"{val:.1f}", True, GREY_TEXT), (nx - 10, self.oy + 8))
+                nx, ny = self.to_screen(0, val)
+                if 0 < ny < HEIGHT:
+                    pygame.draw.line(self.screen, (100, 100, 120), (self.ox-5, ny), (self.ox+5, ny), 1)
+                    if i != 0: self.screen.blit(self.ui_sub_fixed.render(f"{val:.1f}", True, GREY_TEXT), (self.ox - 40, ny - 7))
+
+            # --- TOP LEFT TITLES ---
+            title_str = "CALCULAS VISUALISER \u00B7 KINAMATICS \u00B7 DIFFERENTIATION FROM FIRST PRINCIPAL"
+            self.screen.blit(self.title_main_font.render(title_str, True, NEON_BLUE), (20, 20))
+            formula_str = "\u0394x / \u0394t -> dx/dt"
+            self.screen.blit(self.title_formula_font.render(formula_str, True, NEON_RED), (20, 60))
+
+            # --- PLOTTING ---
+            points = []
+            plot_range = 400
+            step_density = 1 / (self.zoom_level * 5)
+            step_density = max(0.001, min(0.5, step_density))
+            
+            t_start = -plot_range
+            while t_start < plot_range:
+                try: 
+                    p = self.to_screen(t_start, self.f(t_start))
+                    if -5000 < p[0] < 5000 and -5000 < p[1] < 5000:
+                        points.append(p)
+                except: pass
+                t_start += step_density
+            if len(points) > 1: pygame.draw.lines(self.screen, NEON_BLUE, False, points, 2)
+            
+            self.draw_infinite_line(self.t0, self.delta_t, NEON_GREEN if self.delta_t < 0.05 else (180, 180, 180))
+
+            p_scr = self.to_screen(self.t0, self.f(self.t0))
+            q_scr = self.to_screen(self.t0 + self.delta_t, self.f(self.t0 + self.delta_t))
+            pygame.draw.circle(self.screen, NEON_BLUE, p_scr, 6)
+            w = self.draw_subscript_text("P(t", "0", p_scr[0]-50, p_scr[1]-30, NEON_BLUE, self.ui_font_fixed, self.ui_sub_fixed)
+            self.screen.blit(self.ui_font_fixed.render(")", True, NEON_BLUE), (p_scr[0]-50 + w, p_scr[1]-30))
+            
+            pygame.draw.circle(self.screen, NEON_YELLOW, q_scr, 6)
+            w1 = self.draw_subscript_text("Q(t", "0", q_scr[0]+15, q_scr[1]-20, NEON_YELLOW, self.ui_font_fixed, self.ui_sub_fixed)
+            self.screen.blit(self.ui_font_fixed.render(" + Δt)", True, NEON_YELLOW), (q_scr[0]+15 + w1, q_scr[1]-20))
+
+            avg_v, inst_v, err = self.draw_data_panel()
+
+            # --- INPUT BOX ---
+            color = NEON_GREEN if self.active else GREY_TEXT
+            pygame.draw.rect(self.screen, (20, 20, 30), self.input_rect)
+            pygame.draw.rect(self.screen, color, self.input_rect, 2)
+            self.screen.blit(self.ui_font_fixed.render("Enter Equation f(t):", True, NEON_PINK), (self.input_rect.x, self.input_rect.y - 25))
+            txt_surf = self.ui_font_fixed.render(self.user_text, True, NEON_WHITE if self.active else NEON_YELLOW)
+            self.screen.blit(txt_surf, (self.input_rect.x + 10, self.input_rect.y + 10))
+
+            bx, by = 850, HEIGHT - 90
+            if self.delta_t < 0.05:
+                rect = pygame.Rect(bx + 40, by - 45, 100, 22)
+                pygame.draw.rect(self.screen, NEON_GREEN, rect, 1, border_radius=10)
+                self.screen.blit(self.ui_sub_fixed.render("Tangent", True, NEON_GREEN), (rect.x + 24, rect.y + 2))
+                self.screen.blit(self.ui_header_fixed.render("Instantaneous Velocity", True, NEON_GREEN), (bx - 50, by - 15))
+                self.screen.blit(self.ui_font_fixed.render(f"Q reached P | v = dx/dt = {inst_v:.4f}", True, GREY_TEXT), (bx + 20, by + 22))
+            elif err < 0.200:
+                rect = pygame.Rect(bx + 30, by - 45, 120, 22)
+                pygame.draw.rect(self.screen, NEON_ORANGE, rect, 1, border_radius=10)
+                self.screen.blit(self.ui_sub_fixed.render("Approaching", True, NEON_ORANGE), (rect.x + 20, rect.y + 2))
+                self.screen.blit(self.ui_header_fixed.render("Converging ...", True, NEON_YELLOW), (bx + 20, by - 15))
+                self.screen.blit(self.ui_font_fixed.render(f"avg: {avg_v:.4f} -> inst: {inst_v:.4f}", True, GREY_TEXT), (bx + 20, by + 22))
+            else:
+                rect = pygame.Rect(bx + 50, by - 45, 80, 22)
+                pygame.draw.rect(self.screen, NEON_ORANGE, rect, 1, border_radius=10)
+                self.screen.blit(self.ui_sub_fixed.render("Secant", True, NEON_ORANGE), (rect.x + 22, rect.y + 2))
+                self.screen.blit(self.ui_header_fixed.render("Average Velocity", True, NEON_ORANGE), (bx + 20, by - 15))
+                self.screen.blit(self.ui_font_fixed.render("Drag Δt left to see it become a tangent", True, GREY_TEXT), (bx - 20, by + 22))
+
+            sy = HEIGHT-170
+            self.draw_subscript_text("Control t", "0", 50, sy, NEON_BLUE, self.ui_font_fixed, self.ui_sub_fixed)
+            self.screen.blit(self.ui_font_fixed.render(f": {self.t0:.2f}", True, NEON_BLUE), (135, sy))
+            pygame.draw.rect(self.screen, (30, 30, 40), (50, sy+25, 500, 6))
+            t0_slider_pos = int(((self.t0 + 10) / 20) * 500)
+            pygame.draw.circle(self.screen, NEON_BLUE, (50 + t0_slider_pos, sy+28), 8)
+            
+            self.screen.blit(self.ui_font_fixed.render(f"Control Δt: {self.delta_t:.4f}", True, NEON_YELLOW), (50, sy+50))
+            pygame.draw.rect(self.screen, (30, 30, 40), (50, sy+75, 500, 6))
+            dt_slider_pos = int((self.delta_t / 5) * 500)
+            pygame.draw.circle(self.screen, NEON_YELLOW, (50 + dt_slider_pos, sy+78), 8)
+
+            # --- UPDATED: CREDITS UI LOGIC ---
+            prompt_font = pygame.font.SysFont("Agency FB", 18)
+            prompt_surf = prompt_font.render("Press TAB for Developer Info", True, (100, 100, 120))
+            self.screen.blit(prompt_surf, (10, HEIGHT - 30))
+
+            if self.show_credits:
+                overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+                overlay.fill((5, 5, 15, 240)) 
+                self.screen.blit(overlay, (0, 0))
+
+                header_font = pygame.font.SysFont("Agency FB", 50, bold=True)
+                title_surf = header_font.render("KineCalc v2.4 | TECHNICAL SPECIFICATIONS", True, NEON_BLUE)
+                self.screen.blit(title_surf, (80, 80))
+                pygame.draw.line(self.screen, NEON_BLUE, (80, 140), (800, 140), 3)
+
+                info_font = pygame.font.SysFont("Agency FB", 28)
+                details = [
+                    "Software Name & Version: KineCalc v2.4 | Physics Visualization Suite",
+                    "Core Developer: Developed by: Aditya Barua",
+                    "Institutional Alignment: Project Status: Class 11 Academic Research (JEE Prep Tool)",
+                    "Affiliation: P.M. Shri K.V. O.F. Dum Dum",
+                    "Core Technology: Engine: Python 3.12.10 with Pygame Core",
+                    "Logic: Kinematics & Trigonometric Computation Engine",
+                    "Ownership Tag: * © 2026 Aditya Barua Systems. All Rights Reserved.",
+                    ]
+
+                for i, text in enumerate(details):
+                    txt_surf = info_font.render(text, True, NEON_WHITE)
+                    self.screen.blit(txt_surf, (100, 180 + i * 45))
+
+                footer_surf = info_font.render("PRESS TAB TO RETURN TO SIMULATION", True, NEON_YELLOW)
+                self.screen.blit(footer_surf, (WIDTH // 2 - 150, HEIGHT - 100))
+
+            pygame.display.flip()
+            self.clock.tick(FPS)
+
+if __name__ == "__main__":
+    CyberPhysicsVisualizer().run()
